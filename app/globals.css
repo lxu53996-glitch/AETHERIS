@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ===========================================
+     AETHERIS V3.2: "Warm Minimal" (暖调极简)
+     目标：消除刺眼感，营造舒适、像纸张一样的阅读环境。
+     =========================================== */
+
+  /* 1. 背景基调 (The Paper) */
+  /* 这是一个极淡的暖米白，像高级棉纸，非常护眼 */
+  --bg-void: #FAF9F6;
+  
+  /* 侧边栏使用相同的颜色，融为一体，只用线条区分 */
+  --bg-panel: #FAF9F6;
+
+  /* 2. 墨水与线条 (The Ink & Lines) */
+  /* 文字颜色保持深灰，在暖底上对比度极佳且不刺眼 */
+  --text-primary: #18181B; /* Zinc-900 */
+  --text-muted: #71717A;   /* Zinc-500 */
+  
+  /* 边框线从冷灰改成暖灰，与背景融合 */
+  --border-line: #EBEAE4;
+
+  /* 3. 点缀 (The Accent) */
+  /* 保持克莱因蓝，作为唯一的冷色点缀，非常出彩 */
+  --accent-signal: #2563EB;
+  
+  /* Radius */
+  --radius-sm: 6px;
+}
+
+body {
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular Numbers Utility */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbar Hiding Utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Range Slider - Needle Style */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+/* Rectangle Needle Thumb (WebKit) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;  /* w-2 */
+  height: 16px; /* h-4 */
+  background: #FFFFFF;
+  border: 1px solid #D4D4D8; /* zinc-300 */
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  cursor: ew-resize;
+}
+
+/* Rectangle Needle Thumb (Firefox) */
+input[type="range"]::-moz-range-thumb {
+  width: 8px;
+  height: 16px;
+  background: #FFFFFF;
+  border: 1px solid #D4D4D8;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  cursor: ew-resize;
+  border-radius: 0; /* Remove rounded corners */
+}
+
+/* Global Scrollbar - Minimal & Subtle */
+::-webkit-scrollbar {
+  width: 6px; /* 极细 */
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; /* 轨道透明 */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.1); /* 极淡的灰色，只有10%不透明度 */
+  border-radius: 99px; /* 圆角 */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3); /* 悬停时稍微加深 */
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+}
+
+/* Tiptap Editor Styles - Content Typography */
+.ProseMirror {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.75;
+  letter-spacing: 0.01em;
+  color: #18181B; /* text-zinc-900 */
+  font-weight: 400;
+  caret-color: #2563EB; /* Electric Blue cursor */
+  max-width: 65ch; /* Golden Ratio constraint */
+  margin: 0 auto;
+}
+
+.ProseMirror h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  margin-top: 0;
+  color: #18181B;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-family: var(--font-serif);
+}
+
+.ProseMirror h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  margin-top: 2rem;
+  color: #18181B;
+  font-family: var(--font-serif);
+}
+
+.ProseMirror p {
+  margin-bottom: 1.25rem;
+  font-size: 16px;
+  line-height: 1.75;
+  letter-spacing: 0.01em;
+  color: #18181B;
+}
+
+.ProseMirror:focus {
+  outline: none;
+}
+
+/* React Flow Node Styles - Cursor Pointer for Interactivity */
+.react-flow__node {
+  cursor: pointer;
+}
+
+.react-flow__node:hover {
+  opacity: 0.9;
+}
+
+
+
+/* Slide in animation for branches */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@layer utilities {
+  /* Hide Scrollbar but keep functionality */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}
