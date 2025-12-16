@@ -9,7 +9,9 @@ import { useDebouncedCallback } from 'use-debounce';
 import { generatePlotBranches, type PlotBranch } from '@/lib/ai-client';
 import { useChapter } from '@/lib/hooks/useChapter';
 import { useEntities } from '@/lib/hooks/useEntities';
+import { useAmbientAnalysis } from '@/lib/hooks/useAmbientAnalysis';
 import { useSettingsStore } from '@/lib/store/settingsStore';
+import AiGenerated from './editor/extensions/AiGenerated';
 import EntityHUD from './EntityHUD';
 import CouncilPanel from './CouncilPanel';
 import RefactorMenu from './RefactorMenu';
@@ -61,12 +63,43 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const { chapter, saveContent, createChapter, updateTitle } = useChapter(chapterId);
   const { entities } = useEntities();
 
+  /**
+   * Helper function to insert AI-generated text with proper marking
+   * @param editor - Tiptap editor instance
+   * @param content - Content to insert (can be plain text or HTML)
+   */
+  const insertAiText = (editor: any, content: string) => {
+    if (!editor) return;
+    
+    // Get current cursor position
+    const { from } = editor.state.selection;
+    
+    // Insert content first without mark
+    editor
+      .chain()
+      .focus()
+      .insertContent(content, {
+        updateSelection: false,
+      })
+      .run();
+    
+    // Then apply AI mark to the inserted content
+    const to = from + content.length;
+    editor
+      .chain()
+      .setTextSelection({ from, to })
+      .setMark('aiGenerated')
+      .setTextSelection(to)  // Move cursor to end
+      .unsetMark('aiGenerated')  // Ensure future typing is unmarked
+      .run();
+  };
+
   // Expose insertAIContent method to parent via ref
   useImperativeHandle(ref, () => ({
     insertAIContent: (text: string) => {
       if (editor) {
-        // Insert at current cursor position, then move cursor to end of inserted text
-        editor.chain().focus().insertContent(text).run();
+        // Use the helper function to mark AI content
+        insertAiText(editor, text);
       }
     },
   }));
@@ -110,6 +143,7 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     extensions: [
       StarterKit,
       Highlight.configure({ multicolor: true }),
+      AiGenerated,
     ],
     content: '', // Start empty, will be populated from RxDB
     immediatelyRender: false,
@@ -125,6 +159,15 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       debouncedSave(html);
     },
   });
+
+  // Real-time ambient analysis (sentiment & originality)
+  const { sentimentColor, originalityColor } = useAmbientAnalysis(editor);
+
+  // Debug: Log colors
+  useEffect(() => {
+    console.log('[Editor] Sentiment Color:', sentimentColor);
+    console.log('[Editor] Originality Color:', originalityColor);
+  }, [sentimentColor, originalityColor]);
 
   // Initialize editor with content from RxDB
   useEffect(() => {
@@ -216,8 +259,29 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const handleBranchSelect = (branchId: string) => {
     const selectedBranch = branches.find((b) => b.id === branchId);
     if (selectedBranch && editor) {
-      // Insert at cursor position, cursor will be at end of inserted text
-      editor.chain().focus().insertContent(`\n\n${selectedBranch.description}`).run();
+      // Get current cursor position
+      const { from } = editor.state.selection;
+      const content = `\n\n${selectedBranch.description}`;
+      
+      // Insert content first
+      editor
+        .chain()
+        .focus()
+        .insertContent(content, {
+          updateSelection: false,
+        })
+        .run();
+      
+      // Then apply AI mark to the inserted content
+      const to = from + content.length;
+      editor
+        .chain()
+        .setTextSelection({ from, to })
+        .setMark('aiGenerated')
+        .setTextSelection(to)  // Move cursor to end
+        .unsetMark('aiGenerated')  // Ensure future typing is unmarked
+        .run();
+      
       setShowBranches(false);
       setBranches([]);
     }
@@ -336,13 +400,30 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto flex gap-6 relative">
-      {/* Main Editor Area */}
-      <div className={`mx-auto max-w-[65ch] transition-all duration-500 ${showBranches ? 'w-[55%]' : 'w-full'}`}>
-        {/* Content Surface */}
-        <div 
-          className="relative rounded-md transition-all duration-300 bg-white border border-zinc-200"
-        >
+    <>
+      {/* Mood Indicator - Vertical line at right edge */}
+      <div
+        className="fixed right-0 top-0 bottom-0 w-2 z-50 pointer-events-none shadow-lg"
+        style={{
+          backgroundColor: sentimentColor || 'rgb(161 161 170)',
+          transition: 'background-color 1s ease',
+        }}
+        title={`Sentiment: ${sentimentColor}`}
+      />
+      
+      <div className="w-full max-w-7xl mx-auto flex gap-6 relative">
+        {/* Main Editor Area */}
+        <div className={`mx-auto max-w-[65ch] transition-all duration-500 ${showBranches ? 'w-[55%]' : 'w-full'}`}>
+          {/* Content Surface */}
+          <div 
+            className="relative rounded-md transition-all duration-300 bg-white border border-zinc-200"
+            style={{
+              borderBottomWidth: '4px',
+              borderBottomColor: originalityColor || 'rgb(234 179 8)',
+              transition: 'border-color 1s ease',
+            }}
+            title={`Originality: ${originalityColor}`}
+          >
           {/* Save Status Indicator */}
           {saveStatus !== 'idle' && (
             <div className="absolute top-4 right-6 z-10">
@@ -584,7 +665,8 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           onClose={() => setShowCouncil(false)}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 });
 

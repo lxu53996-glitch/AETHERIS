@@ -96,12 +96,27 @@ export default function RefactorMenu({ editor }: RefactorMenuProps) {
 
       const { content } = await response.json();
 
-      // Replace selected text with expanded content
+      // Store cursor position before deletion
+      const { from } = editor.state.selection;
+
+      // Replace selected text with expanded content and mark as AI-generated
       editor
         .chain()
         .focus()
         .deleteSelection()
-        .insertContent(content)
+        .insertContent(content, {
+          updateSelection: false,  // Don't update selection yet
+        })
+        .run();
+
+      // Now apply the AI mark to the inserted content
+      const to = from + content.length;
+      editor
+        .chain()
+        .setTextSelection({ from, to })
+        .setMark('aiGenerated')
+        .setTextSelection(to)  // Move cursor to end, outside the marked content
+        .unsetMark('aiGenerated')  // Ensure future typing is unmarked
         .run();
 
       // Highlight the newly generated content (optional visual feedback)
@@ -158,12 +173,27 @@ export default function RefactorMenu({ editor }: RefactorMenuProps) {
 
       const { rewritten } = await response.json();
 
-      // Replace selected text with rewritten text
+      // Store cursor position before deletion
+      const { from } = editor.state.selection;
+
+      // Replace selected text with rewritten text and mark as AI-generated
       editor
         .chain()
         .focus()
         .deleteSelection()
-        .insertContent(rewritten)
+        .insertContent(rewritten, {
+          updateSelection: false,
+        })
+        .run();
+
+      // Apply AI mark to the inserted content
+      const to = from + rewritten.length;
+      editor
+        .chain()
+        .setTextSelection({ from, to })
+        .setMark('aiGenerated')
+        .setTextSelection(to)  // Move cursor to end
+        .unsetMark('aiGenerated')  // Ensure future typing is unmarked
         .run();
     } catch (error) {
       console.error('Failed to refactor text:', error);
