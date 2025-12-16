@@ -14,6 +14,9 @@ export interface SimulationOptions {
   prompt: string;
   logicMode: 'creative' | 'logical' | 'balanced';
   context?: string;
+  provider?: 'cloud' | 'local';
+  ollamaUrl?: string;
+  localModel?: string;
   onBranchStart?: (branch: { id: string; title: string; index: number }) => void;
   onTextChunk?: (data: { id: string; text: string; index: number }) => void;
   onBranchComplete?: (data: { id: string; index: number }) => void;
@@ -25,7 +28,7 @@ export interface SimulationOptions {
  * Generate plot branches with streaming support
  */
 export async function generatePlotBranches(options: SimulationOptions): Promise<void> {
-  const { prompt, logicMode, context, onBranchStart, onTextChunk, onBranchComplete, onComplete, onError } = options;
+  const { prompt, logicMode, context, provider, ollamaUrl, localModel, onBranchStart, onTextChunk, onBranchComplete, onComplete, onError } = options;
 
   try {
     const response = await fetch('/api/simulate', {
@@ -33,7 +36,14 @@ export async function generatePlotBranches(options: SimulationOptions): Promise<
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt, logicMode, context }),
+      body: JSON.stringify({ 
+        prompt, 
+        logicMode, 
+        context,
+        provider,
+        ollamaUrl,
+        localModel,
+      }),
     });
 
     if (!response.ok) {

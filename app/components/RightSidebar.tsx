@@ -1,23 +1,32 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sparkles, Settings, Gauge, BookOpen } from 'lucide-react';
+import { Sparkles, Settings, Gauge, BookOpen, Plus, RefreshCw } from 'lucide-react';
 import { useLocalStorage } from 'usehooks-ts';
+import { useEntities } from '@/lib/hooks/useEntities';
+import { getDatabase } from '@/lib/db';
 
 interface RightSidebarProps {
   onAIRatioChange?: (ratio: number) => void;
   onTensionChange?: (tension: string) => void;
   onApply?: (text: string) => void;
+  activeChapterId?: string | null;
 }
 
-export default function RightSidebar({ onAIRatioChange, onTensionChange, onApply }: RightSidebarProps) {
+export default function RightSidebar({ onAIRatioChange, onTensionChange, onApply, activeChapterId }: RightSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [aiRatio, setAIRatio] = useState(50);
   const [plotTension, setPlotTension] = useState<'calm' | 'conflict' | 'mystery'>('calm');
   const [showMenu, setShowMenu] = useState(false);
   const [activeTab, setActiveTab] = useState<'sim' | 'world'>('sim');
   const [worldContext, setWorldContext] = useLocalStorage('aetheris-world-context', '');
-
+  
+  // Entity management
+  const { entities, createEntity, updateEntityName } = useEntities();
+  const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
+  const [editingEntityName, setEditingEntityName] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       const windowWidth = window.innerWidth;
@@ -45,6 +54,101 @@ export default function RightSidebar({ onAIRatioChange, onTensionChange, onApply
     setPlotTension(tension);
     if (onTensionChange) {
       onTensionChange(tension);
+    }
+  };
+
+  // Handle entity analysis
+  const handleAnalyze = async () => {
+    if (!activeChapterId || entities.length === 0 || isAnalyzing) return;
+
+    setIsAnalyzing(true);
+    setToastMessage(null);
+
+    try {
+      // Get active chapter content from RxDB
+      const db = await getDatabase();
+      if (!db) {
+        throw new Error('Database not available');
+      }
+
+      const chapterDoc = await db.chapters.findOne({
+        selector: { id: activeChapterId },
+      }).exec();
+
+      if (!chapterDoc) {
+        setToastMessage('❌ No active chapter found');
+        return;
+      }
+
+      const chapterData = chapterDoc.toJSON();
+      
+      // Extract text from HTML content (simple approach)
+      const tempDiv = typeof window !== 'undefined' ? document.createElement('div') : null;
+      if (tempDiv) {
+        tempDiv.innerHTML = chapterData.content || '';
+        var text = tempDiv.textContent || tempDiv.innerText || '';
+      } else {
+        var text = '';
+      }
+
+      if (!text.trim()) {
+        setToastMessage('⚠️ Chapter is empty');
+        return;
+      }
+
+      // Call analyze API
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          entities: entities.map((e) => ({
+            id: e.id,
+            name: e.name,
+            type: e.type,
+            description: e.description,
+            color: e.color,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze');
+      }
+
+      const { updates } = await response.json();
+
+      if (!updates || updates.length === 0) {
+        setToastMessage('ℹ️ No changes detected');
+        return;
+      }
+
+      // Apply updates to entities
+      let updatedCount = 0;
+      for (const update of updates) {
+        const entityDoc = await db.entities.findOne({
+          selector: { id: update.id },
+        }).exec();
+
+        if (entityDoc && update.description) {
+          await entityDoc.patch({
+            description: update.description,
+            updated_at: new Date().toISOString(),
+          });
+          updatedCount++;
+        }
+      }
+
+      setToastMessage(`✅ Updated ${updatedCount} ${updatedCount === 1 ? 'entity' : 'entities'}`);
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setToastMessage('❌ Analysis failed');
+    } finally {
+      setIsAnalyzing(false);
+      // Auto-hide toast after 3 seconds
+      setTimeout(() => setToastMessage(null), 3000);
     }
   };
 
@@ -259,26 +363,149 @@ export default function RightSidebar({ onAIRatioChange, onTensionChange, onApply
               </>
             ) : (
               <>
-                {/* World/Codex Content */}
-                <section>
-                  <div className="flex items-center gap-2 mb-3">
-                    <BookOpen className="w-3 h-3 text-zinc-400" />
-                    <h2 className="font-sans text-[10px] uppercase tracking-[0.05em] text-zinc-400 font-medium">
-                      World Bible / System Prompt
-                    </h2>
-                  </div>
-                  
-                  <textarea
-                    value={worldContext}
-                    onChange={(e) => setWorldContext(e.target.value)}
-                    placeholder="Define your world rules, characters, and tone here. The AI will read this before generating anything."
-                    className="w-full h-[300px] bg-zinc-50 border border-zinc-200 rounded p-3 text-[12px] font-mono text-zinc-700 focus:ring-1 focus:ring-black outline-none resize-none"
-                  />
-                  
-                  <p className="mt-2 text-[10px] font-sans text-zinc-400 italic">
-                    Auto-saved to local storage
-                  </p>
-                </section>
+                {/* World/Codex Content - Split View */}
+                <div className="flex flex-col h-full">
+                  {/* Global Context - Top 40% */}
+                  <section className="pb-4" style={{ height: '40%' }}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <BookOpen className="w-3 h-3 text-zinc-400" />
+                      <h2 className="font-sans text-[10px] uppercase tracking-[0.05em] text-zinc-400 font-medium">
+                        Global Context
+                      </h2>
+                    </div>
+                    
+                    <textarea
+                      value={worldContext}
+                      onChange={(e) => setWorldContext(e.target.value)}
+                      placeholder="Define your world rules, characters, and tone here. The AI will read this before generating anything."
+                      className="w-full h-[calc(100%-40px)] bg-zinc-50 border border-zinc-200 rounded p-3 text-[12px] font-mono text-zinc-700 focus:ring-1 focus:ring-black outline-none resize-none"
+                    />
+                    
+                    <p className="mt-2 text-[10px] font-sans text-zinc-400 italic">
+                      Auto-saved to local storage
+                    </p>
+                  </section>
+
+                  {/* Divider */}
+                  <div className="border-b border-zinc-200 mb-4" />
+
+                  {/* Entities - Bottom 60% */}
+                  <section className="flex-1 flex flex-col" style={{ minHeight: '60%' }}>
+                    {/* Analyze Button */}
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={isAnalyzing || !activeChapterId || entities.length === 0}
+                      className="w-full py-2 mb-4 bg-zinc-100 hover:bg-zinc-200 text-xs uppercase tracking-wider flex items-center justify-center gap-2 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-sans font-medium text-zinc-700"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${
+                        isAnalyzing ? 'animate-spin' : ''
+                      }`} />
+                      <span>{isAnalyzing ? 'Analyzing...' : 'Analyze & Update'}</span>
+                    </button>
+
+                    {/* Toast Notification */}
+                    {toastMessage && (
+                      <div className="mb-3 px-3 py-2 bg-zinc-900 text-white text-xs rounded animate-fade-in font-sans">
+                        {toastMessage}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="font-sans text-[10px] uppercase tracking-[0.05em] text-zinc-400 font-medium">
+                        Entities
+                      </h2>
+                      <button
+                        onClick={async () => {
+                          await createEntity();
+                        }}
+                        className="w-5 h-5 flex items-center justify-center bg-zinc-900 text-white rounded hover:bg-zinc-700 transition-colors"
+                        title="Add Entity"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Entity List - Scrollable */}
+                    <div className="flex-1 overflow-y-auto no-scrollbar">
+                      {entities.length === 0 ? (
+                        <div className="text-center py-8">
+                          <p className="text-[12px] text-zinc-400 italic">No entities yet. Click + to add one.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {entities.map((entity) => {
+                            // Get color based on entity type
+                            const getTypeColor = (type: string) => {
+                              switch (type) {
+                                case 'CHARACTER':
+                                  return '#EF4444'; // Red
+                                case 'LOCATION':
+                                  return '#3B82F6'; // Blue
+                                case 'ITEM':
+                                  return '#10B981'; // Green
+                                case 'LORE':
+                                  return '#8B5CF6'; // Purple
+                                default:
+                                  return '#6B7280'; // Gray
+                              }
+                            };
+
+                            const isEditing = editingEntityId === entity.id;
+
+                            return (
+                              <div
+                                key={entity.id}
+                                className="flex items-center gap-2 py-2 px-2 hover:bg-zinc-50 rounded transition-colors"
+                              >
+                                {/* Type Indicator */}
+                                <div
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: getTypeColor(entity.type) }}
+                                  title={entity.type}
+                                />
+                                {/* Entity Name - Editable */}
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    value={editingEntityName}
+                                    onChange={(e) => setEditingEntityName(e.target.value)}
+                                    onBlur={async () => {
+                                      if (editingEntityName.trim() && editingEntityName !== entity.name) {
+                                        await updateEntityName(entity.id, editingEntityName.trim());
+                                      }
+                                      setEditingEntityId(null);
+                                      setEditingEntityName('');
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.currentTarget.blur();
+                                      } else if (e.key === 'Escape') {
+                                        setEditingEntityId(null);
+                                        setEditingEntityName('');
+                                      }
+                                    }}
+                                    autoFocus
+                                    className="flex-1 bg-white border border-blue-500 rounded px-2 py-0.5 text-[13px] text-zinc-900 font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  />
+                                ) : (
+                                  <span
+                                    onClick={() => {
+                                      setEditingEntityId(entity.id);
+                                      setEditingEntityName(entity.name);
+                                    }}
+                                    className="flex-1 text-[13px] text-zinc-900 font-medium truncate cursor-pointer"
+                                  >
+                                    {entity.name}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                </div>
               </>
             )}
           </div>

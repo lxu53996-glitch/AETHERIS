@@ -6,6 +6,9 @@ interface SimulateRequest {
   prompt: string;
   logicMode: 'creative' | 'logical' | 'balanced';
   context?: string;
+  provider?: 'cloud' | 'local';
+  ollamaUrl?: string;
+  localModel?: string;
 }
 
 interface Branch {
@@ -20,83 +23,106 @@ interface Branch {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, logicMode, context } = (await request.json()) as SimulateRequest;
-
-    // Validate API key
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: 'DEEPSEEK_API_KEY not configured' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    const { prompt, logicMode, context, provider = 'cloud', ollamaUrl, localModel } = (await request.json()) as SimulateRequest;
 
     // Create streaming response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // Call DeepSeek API
           const systemPrompt = buildSystemPrompt(logicMode, context);
-          const deepseekResponse = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'deepseek-chat',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: prompt },
-              ],
-              stream: true,
-              temperature: getTemperature(logicMode),
-              max_tokens: 1500,
-            }),
-          });
-
-          if (!deepseekResponse.ok) {
-            throw new Error(`DeepSeek API error: ${deepseekResponse.status}`);
-          }
-
-          // Read DeepSeek stream
-          const reader = deepseekResponse.body?.getReader();
-          if (!reader) {
-            throw new Error('No stream reader available');
-          }
-
-          const decoder = new TextDecoder();
-          let buffer = '';
+          
+          // Route to Cloud or Local based on provider
           let fullResponse = '';
-
-          // Parse SSE stream from DeepSeek
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6).trim();
-
-                // Handle end signal
-                if (data === '[DONE]') {
-                  continue;
-                }
-
-                try {
-                  const chunk = JSON.parse(data);
-                  const content = chunk.choices?.[0]?.delta?.content;
-
-                  if (content) {
-                    fullResponse += content;
+          
+          if (provider === 'local') {
+            // Call Ollama (non-streaming for simplicity)
+            const ollamaEndpoint = ollamaUrl || 'http://127.0.0.1:11434';
+            const model = localModel || 'llama3';
+            
+            const ollamaResponse = await fetch(`${ollamaEndpoint}/api/chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: prompt },
+                ],
+                stream: false,
+                options: {
+                  temperature: getTemperature(logicMode),
+                  num_predict: 1500,
+                },
+              }),
+            });
+            
+            if (!ollamaResponse.ok) {
+              throw new Error(`Ollama API error: ${ollamaResponse.status}`);
+            }
+            
+            const data = await ollamaResponse.json();
+            fullResponse = data.message?.content || '';
+          } else {
+            // Call DeepSeek (Cloud) with streaming
+            const apiKey = process.env.DEEPSEEK_API_KEY;
+            if (!apiKey) {
+              throw new Error('DEEPSEEK_API_KEY not configured');
+            }
+            
+            const deepseekResponse = await fetch('https://api.deepseek.com/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: prompt },
+                ],
+                stream: true,
+                temperature: getTemperature(logicMode),
+                max_tokens: 1500,
+              }),
+            });
+            
+            if (!deepseekResponse.ok) {
+              throw new Error(`DeepSeek API error: ${deepseekResponse.status}`);
+            }
+            
+            // Read DeepSeek stream
+            const reader = deepseekResponse.body?.getReader();
+            if (!reader) {
+              throw new Error('No stream reader available');
+            }
+            
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            // Parse SSE stream from DeepSeek
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const data = line.slice(6).trim();
+                  
+                  if (data === '[DONE]') continue;
+                  
+                  try {
+                    const chunk = JSON.parse(data);
+                    const content = chunk.choices?.[0]?.delta?.content;
+                    if (content) fullResponse += content;
+                  } catch (e) {
+                    // Ignore malformed chunks
                   }
-                } catch (e) {
-                  // Ignore malformed chunks
                 }
               }
             }

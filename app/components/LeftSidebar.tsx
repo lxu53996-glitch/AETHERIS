@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Book, List, Plus, Download, FileText, Upload, LogOut, FileEdit, LayoutGrid } from 'lucide-react';
+import { Book, List, Plus, Download, FileText, Upload, LogOut, FileEdit, LayoutGrid, Settings } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import type { ChapterDocument } from '@/lib/db/schema';
 import { downloadMarkdown, downloadDocx } from '@/lib/exporter';
@@ -16,9 +16,10 @@ interface LeftSidebarProps {
   onCreate: () => Promise<string>;
   currentView: 'editor' | 'board';
   onSwitchView: (view: 'editor' | 'board') => void;
+  onOpenSettings: () => void;
 }
 
-export default function LeftSidebar({ chapters, activeId, onSelect, onCreate, currentView, onSwitchView }: LeftSidebarProps) {
+export default function LeftSidebar({ chapters, activeId, onSelect, onCreate, currentView, onSwitchView, onOpenSettings }: LeftSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -350,6 +351,17 @@ export default function LeftSidebar({ chapters, activeId, onSelect, onCreate, cu
                 {isOnline ? 'Cloud Sync Active' : 'Offline'}
               </span>
             </div>
+            
+            {/* Settings Button */}
+            <button
+              onClick={onOpenSettings}
+              className="w-full px-2 py-2 hover:bg-zinc-100 rounded-sm transition-colors flex items-center gap-2 cursor-pointer group mb-2"
+            >
+              <Settings className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-600" />
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500 group-hover:text-zinc-900 font-medium font-sans">
+                Settings
+              </span>
+            </button>
             
             {/* Sign Out Button */}
             <button

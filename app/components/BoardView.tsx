@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -23,20 +23,49 @@ interface BoardViewProps {
 export default function BoardView({ chapters, onNodeClick, onUpdatePosition, onNavigate }: BoardViewProps) {
   // Convert chapters to React Flow nodes
   // Use saved position if available, otherwise use default layout
-  const initialNodes: Node[] = chapters.map((chapter, index) => ({
-    id: chapter.id,
-    position: { 
-      x: chapter.position_x ?? index * 250, 
-      y: chapter.position_y ?? 100 
-    },
-    data: { label: chapter.title },
-    type: 'default',
-  }));
+  const initialNodes: Node[] = chapters.map((chapter, index) => {
+    // Ensure x and y are always valid numbers
+    const x = typeof chapter.position_x === 'number' && !isNaN(chapter.position_x) 
+      ? chapter.position_x 
+      : index * 250;
+    const y = typeof chapter.position_y === 'number' && !isNaN(chapter.position_y) 
+      ? chapter.position_y 
+      : 100;
+
+    return {
+      id: chapter.id,
+      position: { x, y },
+      data: { label: chapter.title },
+      type: 'default',
+    };
+  });
 
   const initialEdges: Edge[] = [];
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+
+  // Update nodes when chapters change
+  useEffect(() => {
+    const newNodes: Node[] = chapters.map((chapter, index) => {
+      // Ensure x and y are always valid numbers
+      const x = typeof chapter.position_x === 'number' && !isNaN(chapter.position_x) 
+        ? chapter.position_x 
+        : index * 250;
+      const y = typeof chapter.position_y === 'number' && !isNaN(chapter.position_y) 
+        ? chapter.position_y 
+        : 100;
+
+      return {
+        id: chapter.id,
+        position: { x, y },
+        data: { label: chapter.title },
+        type: 'default',
+      };
+    });
+
+    setNodes(newNodes);
+  }, [chapters, setNodes]);
 
   // Handle node click
   const handleNodeClick = useCallback(

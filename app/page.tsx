@@ -8,6 +8,7 @@ import Editor, { type EditorHandle } from './components/Editor';
 import LeftSidebar from './components/LeftSidebar';
 import RightSidebar from './components/RightSidebar';
 import AuthDialog from './components/AuthDialog';
+import SettingsDialog from './components/SettingsDialog';
 import BoardView from './components/BoardView';
 import { useChapterList } from '@/lib/hooks/useChapterList';
 
@@ -21,6 +22,7 @@ export default function Home() {
   const editorRef = useRef<EditorHandle>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Get chapter list from RxDB
   const { chapters, createChapter } = useChapterList();
@@ -115,6 +117,7 @@ export default function Home() {
         onCreate={createChapter}
         currentView={viewMode}
         onSwitchView={setViewMode}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
       
       {/* Right Sidebar - Settings/AI */}
@@ -122,6 +125,13 @@ export default function Home() {
         onAIRatioChange={setAIRatio}
         onTensionChange={setPlotTension}
         onApply={handleApplyAIText}
+        activeChapterId={activeChapterId}
+      />
+      
+      {/* Settings Dialog */}
+      <SettingsDialog 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
       />
       
       {/* Main Content Area - Editor or Board */}

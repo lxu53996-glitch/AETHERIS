@@ -2,11 +2,17 @@
 
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Highlight from '@tiptap/extension-highlight';
 import { useEffect, useState, useRef, forwardRef, useImperativeHandle } from 'react';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Scan, Users } from 'lucide-react';
 import { useDebouncedCallback } from 'use-debounce';
 import { generatePlotBranches, type PlotBranch } from '@/lib/ai-client';
 import { useChapter } from '@/lib/hooks/useChapter';
+import { useEntities } from '@/lib/hooks/useEntities';
+import { useSettingsStore } from '@/lib/store/settingsStore';
+import EntityHUD from './EntityHUD';
+import CouncilPanel from './CouncilPanel';
+import RefactorMenu from './RefactorMenu';
 
 interface EditorProps {
   chapterId: string;
@@ -41,9 +47,19 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const hasLoadedChapter = useRef(false);
   const [localTitle, setLocalTitle] = useState('');
   const isUserTyping = useRef(false); // Track if user is actively editing
+  const [isLensActive, setIsLensActive] = useState(false);
+  
+  // Council state
+  const [showCouncil, setShowCouncil] = useState(false);
+  const [isCouncilLoading, setIsCouncilLoading] = useState(false);
+  const [councilData, setCouncilData] = useState<{
+    reviews: Array<{ role: string; score: number; comment: string }>;
+    overall_verdict: string;
+  } | null>(null);
 
   // RxDB integration - dynamic chapter ID
   const { chapter, saveContent, createChapter, updateTitle } = useChapter(chapterId);
+  const { entities } = useEntities();
 
   // Expose insertAIContent method to parent via ref
   useImperativeHandle(ref, () => ({
@@ -91,7 +107,10 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   );
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit,
+      Highlight.configure({ multicolor: true }),
+    ],
     content: '', // Start empty, will be populated from RxDB
     immediatelyRender: false,
     editorProps: {
@@ -143,6 +162,9 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     setIsSimulating(true);
     setBranches([]);
 
+    // Get settings from store
+    const { aiProvider, ollamaUrl, localModel } = useSettingsStore.getState();
+    
     // Get current editor content as prompt
     const prompt = editor?.getText() || 'Continue the story...';
 
@@ -156,6 +178,9 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       prompt,
       logicMode: logicMode as 'creative' | 'logical' | 'balanced',
       context: worldContext,
+      provider: aiProvider,
+      ollamaUrl,
+      localModel,
       onBranchStart: ({ id, title, index }) => {
         setBranches((prev) => [
           ...prev,
@@ -198,11 +223,116 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     }
   };
 
+  // Toggle Holographic Lens (Entity Highlighter)
+  const toggleLens = () => {
+    if (!editor) return;
+
+    if (isLensActive) {
+      // Turn OFF: Remove all highlights from entire document
+      const { doc } = editor.state;
+      const currentSelection = editor.state.selection; // Save current position
+      
+      editor
+        .chain()
+        .setTextSelection({ from: 0, to: doc.content.size })
+        .unsetHighlight()
+        .setTextSelection(currentSelection) // Restore cursor position
+        .run();
+      
+      setIsLensActive(false);
+    } else {
+      // Turn ON: Scan and highlight entities
+      setIsLensActive(true);
+
+      // Save current cursor position
+      const currentSelection = editor.state.selection;
+
+      // Traverse the document to find and highlight entity names
+      const { doc } = editor.state;
+      const tr = editor.state.tr;
+
+      entities.forEach((entity) => {
+        const entityName = entity.name.toLowerCase();
+        
+        doc.descendants((node, pos) => {
+          if (node.isText && node.text) {
+            const text = node.text.toLowerCase();
+            let index = 0;
+            
+            while ((index = text.indexOf(entityName, index)) !== -1) {
+              const from = pos + index;
+              const to = from + entityName.length;
+              
+              // Apply highlight mark
+              editor
+                .chain()
+                .setTextSelection({ from, to })
+                .setHighlight({ color: entity.color || '#ffcc00' })
+                .run();
+              
+              index += entityName.length;
+            }
+          }
+        });
+      });
+
+      // Restore original cursor position
+      editor.commands.setTextSelection(currentSelection);
+    }
+  };
+
   // Handle title change
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setLocalTitle(newTitle);
     debouncedSaveTitle(newTitle);
+  };
+
+  // Summon AI Council
+  const handleSummonCouncil = async () => {
+    if (!editor || isCouncilLoading) return;
+
+    setIsCouncilLoading(true);
+
+    try {
+      // Get settings from store
+      const { aiProvider, ollamaUrl, localModel } = useSettingsStore.getState();
+      
+      // Extract plain text from editor
+      const text = editor.getText();
+
+      if (!text || text.trim().length === 0) {
+        alert('章节内容为空，无法召唤评审团');
+        setIsCouncilLoading(false);
+        return;
+      }
+
+      // Call Council API with settings
+      const response = await fetch('/api/council', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          text, 
+          context: '',
+          provider: aiProvider,
+          ollamaUrl,
+          localModel,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Council API 调用失败');
+      }
+
+      const data = await response.json();
+      setCouncilData(data);
+      setShowCouncil(true);
+    } catch (error) {
+      console.error('Failed to summon council:', error);
+      alert('召唤评审团失败，请重试');
+    } finally {
+      setIsCouncilLoading(false);
+    }
   };
 
   return (
@@ -226,18 +356,61 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             </div>
           )}
           
-          {/* Editable Title Header */}
+          {/* Editable Title Header with Lens Button */}
           <div className="px-8 pt-16">
-            <input
-              type="text"
-              value={localTitle}
-              onChange={handleTitleChange}
-              placeholder="Untitled Chapter"
-              className="w-full bg-transparent border-none outline-none text-[32px] font-bold text-zinc-900 placeholder-zinc-300 font-serif mb-8 focus:ring-0"
-            />
+            <div className="flex items-center gap-3 mb-8">
+              <input
+                type="text"
+                value={localTitle}
+                onChange={handleTitleChange}
+                placeholder="Untitled Chapter"
+                className="flex-1 bg-transparent border-none outline-none text-[32px] font-bold text-zinc-900 placeholder-zinc-300 font-serif focus:ring-0"
+              />
+              {/* Lens Button */}
+              <button
+                onClick={toggleLens}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] font-sans transition-all ${
+                  isLensActive
+                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/50'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                }`}
+                title={isLensActive ? 'Deactivate Entity Lens' : 'Activate Entity Lens'}
+              >
+                <Scan className={`w-3.5 h-3.5 ${
+                  isLensActive ? 'animate-pulse' : ''
+                }`} />
+                <span>Lens</span>
+              </button>
+              
+              {/* Council Button */}
+              <button
+                onClick={handleSummonCouncil}
+                disabled={isCouncilLoading}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] font-sans transition-all bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Summon AI Council"
+              >
+                {isCouncilLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Summoning...</span>
+                  </>
+                ) : (
+                  <>
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Council</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
           
           <EditorContent editor={editor} />
+          
+          {/* Entity HUD - Floating Info Card */}
+          {editor && <EntityHUD editor={editor} entities={entities} />}
+          
+          {/* Refactor Menu - Text Selection Toolbar */}
+          {editor && <RefactorMenu editor={editor} />}
           
           {/* Simulate Button - UI Element */}
           <div className="absolute bottom-6 right-6">
@@ -401,6 +574,15 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             ))}
           </div>
         </div>
+      )}
+      
+      {/* Council Panel */}
+      {showCouncil && councilData && (
+        <CouncilPanel
+          reviews={councilData.reviews}
+          overallVerdict={councilData.overall_verdict}
+          onClose={() => setShowCouncil(false)}
+        />
       )}
     </div>
   );
